@@ -51,7 +51,7 @@ subnetid=$(az network vnet show -g $consumer_rg -n consumer-vnet -o tsv --query 
 az aks create \
 -g $consumer_rg \
 -n consumer-aks \
--l $consumer_location
+-l $consumer_location \
 --vnet-subnet-id $subnetid
 
 # Get cluster credentials
