@@ -103,3 +103,60 @@ az network lb frontend-ip update \
 # --name ${appip_name:11} \
 # --lb-name kubernetes \
 # --gateway-lb ""
+
+
+# Install Agones (https://agones.dev/site/docs/installation/install-agones/yaml/)
+kubectl create namespace agones-system
+kubectl apply -f https://raw.githubusercontent.com/googleforgames/agones/release-1.23.0/install/yaml/install.yaml
+
+# Deploy a Game Server (https://agones.dev/site/docs/getting-started/create-gameserver/)
+kubectl create -f https://raw.githubusercontent.com/googleforgames/agones/release-1.23.0/examples/simple-game-server/gameserver.yaml
+
+# Get the Game Name Server IP and port
+gameservername=$(kubectl get gs -o jsonpath='{.items[0].metadata.name}')
+gameservernodename=$(kubectl get gs -o jsonpath='{.items[0].status.nodeName}')
+gameserverip=$(kubectl get gs -o jsonpath='{.items[0].status.address}')
+gameserverport=$(kubectl get gs -o jsonpath='{.items[0].status.ports[0].port}')
+
+# Test the Game Server
+# After running this command you can type messages in the terminal and they 
+# will be echoed by the game server via netcat
+kubectl run netcat -it --rm --image=busybox -- nc -u $gameserverip $gameserverport
+
+# Create the gameserver public IP
+az network public-ip create \
+--resource-group $consumer_rg  \
+--name $gameservernodename \
+--sku Standard
+
+az network lb create \
+--resource-group $consumer_rg \
+--name gameserver-lb \
+--sku Standard \
+--public-ip-address $gameservernodename
+
+az network lb address-pool address add \
+-g $consumer_rg \
+--lb-name gameserver-lb \
+--pool-name gameserver-lbbepool \
+-n $gameservernodename \
+--vnet consumer-vnet \
+--ip-address $gameserverip
+
+
+# Create the NAT rule for the game server
+az network lb inbound-nat-rule create \
+-g $consumer_rg \
+--lb-name gameserver-lb \
+--name $gameservername \
+--protocol udp \
+--backend-pool-name gameserver-lbbepool \
+--frontend-port-range-start $gameserverport \
+--frontend-port-range-end $gameserverport \
+--backend-port $gameserverport
+
+# Get the public IP
+gameserverpubip=$(az network public-ip show --resource-group $consumer_rg --name $gameservernodename -o tsv --query ipAddress)
+
+# Netcat through the SLB NAT Rule
+nc -u $gameserverpubip $gameserverport
