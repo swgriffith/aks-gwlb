@@ -214,7 +214,7 @@ az network nsg rule create \
 
 1. Set the protocol to UDP and the Destination Port Range from 7000 to 8000
 
-    ![glbext rules 2](images/glbextrules2.jpg)
+    ![glbext rules](images/glbextrules2.jpg)
 
 1. Save the rule and then click 'Apply Changes' at the top of the page. You can then click on the ' System: High availablity: status' link and initiate a synchronization with the other instance.
 
