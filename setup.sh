@@ -2,7 +2,6 @@ consumer_rg=glb-lab
 consumer_location=centralus
 consumervnetcidr="10.30.0.0/16"
 consumersubnet="10.30.1.0/24"
-consumerbastionsubnet="10.30.2.0/24"
 mypip=$(curl -4 ifconfig.io -s) # or replace with your home public ip, example mypip="1.1.1.1" (required for Cloud Shell deployments)
 username=""
 password=""
@@ -14,20 +13,6 @@ az network vnet create --resource-group $consumer_rg --name consumer-vnet --loca
 
 # Create the NSG Rule to allow your IP ssh access
 az network nsg create --resource-group $consumer_rg --name consumer-nsg --location $consumer_location
-az network nsg rule create \
-    --resource-group $consumer_rg \
-    --nsg-name consumer-nsg \
-    --name AllowSSHRule \
-    --direction Inbound \
-    --priority 100 \
-    --source-address-prefixes $mypip/32 \
-    --source-port-ranges '*' \
-    --destination-address-prefixes '*' \
-    --destination-port-ranges 22 \
-    --access Allow \
-    --protocol Tcp \
-    --description "Allow inbound SSH" \
-    --output none
 az network nsg rule create \
     --resource-group $consumer_rg \
     --nsg-name consumer-nsg \
@@ -95,6 +80,15 @@ glbfeid=$(az network lb frontend-ip show -g $provider_rg --lb-name provider-nva-
 managedcluster_rg=$(az aks show -g $consumer_rg -n consumer-aks -o tsv --query nodeResourceGroup)
 appip_name=$(az network public-ip list -g $managedcluster_rg -o tsv --query "[?ipAddress=='$appip']".name)
 
+# Get the cluster identity
+cluster_principal=$(az aks show -g EphGWLBLAB -n consumer-aks -o tsv --query 'identity.principalId')
+cluster_objid=$(az ad sp show --id $cluster_principal -o tsv --query objectId)
+
+# Grant the cluster identity rights on the GWLB
+az role assignment create --assignee-object-id $cluster_objid \
+--role 'Contributor' \
+--scope $glbfeid 
+
 # Add the gateway load balancer to the application public IP
 az network lb frontend-ip update \
 -g $managedcluster_rg \
@@ -102,15 +96,10 @@ az network lb frontend-ip update \
 --lb-name kubernetes \
 --gateway-lb $glbfeid 
 
-az network lb frontend-ip show \
--g mc_glb-lab_consumer-aks_centralus \
---name ae7fc8979f3b8439c9dd1797acfdc3df \
---lb-name kubernetes \
---query gatewayLoadBalancer.id -o tsv
 
 # Remove the gateway load balancer from the application public IP
 # az network lb frontend-ip update \
-# -g mc_glb-lab_consumer-aks_centralus \
-# --name ae7fc8979f3b8439c9dd1797acfdc3df \
+# -g $managedcluster_rg \
+# --name ${appip_name:11} \
 # --lb-name kubernetes \
 # --gateway-lb ""
