@@ -72,7 +72,11 @@ First we need to create the Gateway Load Balancer consuming system, which will b
     gameserverport=$(kubectl get gs $gameservername -o jsonpath='{.spec.template.spec.containers[0].ports[0].hostPort}')
 
     # Test the Game Server
-    kubectl run gstest -it --rm --image=busybox -- wget $gameserverip:$gameserverport/Hello -q --output-document -
+    # Since we don't have a public IP yet, which will be added later, we'll port-forward directly to the pod for now
+    # In one terminal window start the port foward
+    kubectl port-forward pod/$gameservername 8080:80
+    # In another terminal window run the following
+    curl localhost:8080/Hello
 
     # You should see a response like the following:
     Hello from fake GameServer with hostname gameserverbuild-sample-netcore-izzbt
