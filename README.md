@@ -45,35 +45,37 @@ First we need to create the Gateway Load Balancer consuming system, which will b
     --vnet-subnet-id $subnetid
     ```
 
-1. Get the cluster credentials and deploy Agones:
+1. Get the cluster credentials and deploy Thundernetes:
 
     ```bash
     # Get cluster credentials
     az aks get-credentials -g $consumer_rg -n consumer-aks
 
-    # Install Agones (https://agones.dev/site/docs/installation/install-agones/yaml/)
-    kubectl create namespace agones-system
-    kubectl apply -f https://raw.githubusercontent.com/googleforgames/agones/release-1.23.0/install/yaml/install.yaml
+    # Install Thundernetes (https://playfab.github.io/thundernetes/quickstart.html)
+    # Install Cert-Manager
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+
+    # Install Thundernetes
+    kubectl apply -f https://raw.githubusercontent.com/PlayFab/thundernetes/main/installfiles/operator.yaml
     ```
 
 1. Deploy a game server and get some values, which we'll use more extensively later, and test the gameserver:
 
     ```bash
-    # Deploy a Game Server (https://agones.dev/site/docs/getting-started/create-gameserver/)
-    kubectl create -f https://raw.githubusercontent.com/googleforgames/agones/release-1.23.0/examples/simple-game-server/gameserver.yaml
+    # Deploy a Game Server:
+    kubectl apply -f https://raw.githubusercontent.com/PlayFab/thundernetes/main/samples/netcore/sample.yaml
 
     # Get the Game Name Server IP and port
     gameservername=$(kubectl get gs -o jsonpath='{.items[0].metadata.name}')
-    gameservernodename=$(kubectl get gs -o jsonpath='{.items[0].status.nodeName}')
-    gameserverip=$(kubectl get gs -o jsonpath='{.items[0].status.address}')
-    gameserverport=$(kubectl get gs -o jsonpath='{.items[0].status.ports[0].port}')
+    gameservernodename=$(kubectl get gs $gameservername -o jsonpath='{.status.nodeName}')
+    gameserverip=$(kubectl get gs $gameservername -o jsonpath='{.status.publicIP}')
+    gameserverport=$(kubectl get gs $gameservername -o jsonpath='{.spec.template.spec.containers[0].ports[0].hostPort}')
 
     # Test the Game Server
-    # After running this command you can type messages in the terminal and they 
-    # will be echoed by the game server via netcat
-    kubectl run netcat -it --rm --image=busybox -- nc -u $gameserverip $gameserverport
+    kubectl run gstest -it --rm --image=busybox -- wget $gameserverip:$gameserverport/Hello -q --output-document -
 
-    # Hit CTRL-C to exit the pod
+    # You should see a response like the following:
+    Hello from fake GameServer with hostname gameserverbuild-sample-netcore-izzbt
     ```
 
 ## Create the Gateway Loadbalancer and Deploy OpnSense
@@ -147,7 +149,7 @@ First we need to create the Gateway Load Balancer consuming system, which will b
     -g $consumer_rg \
     --lb-name gameserver-lb \
     --name $gameservername \
-    --protocol udp \
+    --protocol tcp \
     --backend-pool-name gameserver-lbbepool \
     --frontend-port-range-start $gameserverport \
     --frontend-port-range-end $gameserverport \
@@ -165,7 +167,7 @@ az network nsg rule create \
 --nsg-name $managednsg \
 -n $gameservername \
 --access Allow \
---protocol Udp \
+--protocol Tcp \
 --destination-port-ranges $gameserverport \
 --priority 100
 ```
@@ -177,7 +179,7 @@ az network nsg rule create \
     gameserverpubip=$(az network public-ip show --resource-group $consumer_rg --name $gameservernodename -o tsv --query ipAddress)
 
     # Netcat through the SLB NAT Rule
-    nc -u $gameserverpubip $gameserverport
+    wget $gameserverpubip:$gameserverport/Hello -q --output-document -
     ```
 
 ### Connect the Game Server IP to the Gateway Loadbalancer
@@ -212,7 +214,7 @@ az network nsg rule create \
 
     ![glbext rules](images/glbextrules1.jpg)
 
-1. Set the protocol to UDP and the Destination Port Range from 7000 to 8000
+1. Set the protocol to TCP and the Destination Port Range from 10000 to 11000
 
     ![glbext rules](images/glbextrules2.jpg)
 
@@ -221,11 +223,8 @@ az network nsg rule create \
 1. Test your netcat and check the firewall logs
 
     ```bash
-    nc -u $gameserverpubip $gameserverport
-    Hello
-    ACK: Hello
-    World
-    ACK: World
+    wget $gameserverpubip:$gameserverport/Hello -q --output-document -
+    Hello from fake GameServer with hostname gameserverbuild-sample-netcore-izzbt
     ```
 
     >*Note:* You can filter the logs using your public IP
